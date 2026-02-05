@@ -1,10 +1,11 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
+import sklearn.datasets
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import tensorflow as tf
-from tensorflow import keras as ks
+import keras as ks
 
 # Page configuration
 st.set_page_config(
@@ -182,74 +183,52 @@ st.markdown("""
 # Load and prepare the model
 @st.cache_resource
 def load_model_and_scaler():
-    try:
-        # Load dataset from CSV file
-        # The CSV should have feature columns and a 'diagnosis' or 'label' column
-        data_frame = pd.read_csv('data.csv')
-        
-        # Check if the dataset has a 'diagnosis' column (M/B) or 'label' column (0/1)
-        if 'diagnosis' in data_frame.columns:
-            # Convert diagnosis to binary (M=0 (malignant), B=1 (benign))
-            data_frame['label'] = data_frame['diagnosis'].map({'M': 0, 'B': 1})
-            data_frame = data_frame.drop(columns=['diagnosis'])
-        
-        # Remove any ID columns if present
-        if 'id' in data_frame.columns:
-            data_frame = data_frame.drop(columns=['id'])
-        if 'Unnamed: 0' in data_frame.columns:
-            data_frame = data_frame.drop(columns=['Unnamed: 0'])
-        
-        # Get feature names (all columns except 'label')
-        feature_names = [col for col in data_frame.columns if col != 'label']
-        
-        # Prepare data
-        X = data_frame.drop(columns='label', axis=1)
-        y = data_frame['label']
-        
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=2
-        )
-        
-        # Standardize
-        scaler = StandardScaler()
-        X_train_std = scaler.fit_transform(X_train)
-        X_test_std = scaler.transform(X_test)
-        
-        # Build model
-        tf.random.set_seed(3)
-        model = ks.Sequential([
-            ks.layers.Flatten(input_shape=(len(feature_names),)),
-            ks.layers.Dense(20, activation='relu'),
-            ks.layers.Dense(2, activation='sigmoid')
-        ])
-        
-        model.compile(
-            optimizer='adam',
-            loss='sparse_categorical_crossentropy',
-            metrics=['accuracy']
-        )
-        
-        # Train model
-        model.fit(X_train_std, y_train, epochs=10, verbose=0)
-        
-        # Evaluate
-        loss, accuracy = model.evaluate(X_test_std, y_test, verbose=0)
-        
-        return model, scaler, feature_names, accuracy, True
-        
-    except FileNotFoundError:
-        st.error("❌ Error: 'data.csv' file not found! Please upload your dataset.")
-        return None, None, None, None, False
-    except Exception as e:
-        st.error(f"❌ Error loading data: {str(e)}")
-        return None, None, None, None, False
+    # Load dataset
+    breast_cancer_dataset = sklearn.datasets.load_breast_cancer()
+    data_frame = pd.DataFrame(
+        breast_cancer_dataset.data, 
+        columns=breast_cancer_dataset.feature_names
+    )
+    data_frame['label'] = breast_cancer_dataset.target
+    
+    # Prepare data
+    X = data_frame.drop(columns='label', axis=1)
+    y = data_frame['label']
+    
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=2
+    )
+    
+    # Standardize
+    scaler = StandardScaler()
+    X_train_std = scaler.fit_transform(X_train)
+    X_test_std = scaler.transform(X_test)
+    
+    # Build model
+    tf.random.set_seed(3)
+    model = ks.Sequential([
+        ks.layers.Flatten(input_shape=(30,)),
+        ks.layers.Dense(20, activation='relu'),
+        ks.layers.Dense(2, activation='sigmoid')
+    ])
+    
+    model.compile(
+        optimizer='adam',
+        loss='sparse_categorical_crossentropy',
+        metrics=['accuracy']
+    )
+    
+    # Train model
+    model.fit(X_train_std, y_train, epochs=10, verbose=0)
+    
+    # Evaluate
+    loss, accuracy = model.evaluate(X_test_std, y_test, verbose=0)
+    
+    return model, scaler, breast_cancer_dataset.feature_names, accuracy
 
 # Load model
 with st.spinner('🔬 Loading AI model...'):
-    model, scaler, feature_names, model_accuracy, success = load_model_and_scaler()
-
-if not success:
-    st.stop()
+    model, scaler, feature_names, model_accuracy = load_model_and_scaler()
 
 # Header
 st.markdown("<h1>🎗️ Breast Cancer Prediction System</h1>", unsafe_allow_html=True)
@@ -263,7 +242,7 @@ st.markdown(
 st.markdown("""
     <div class='info-box'>
         <strong>ℹ️ About This Tool</strong><br>
-        This AI model analyzes cellular features to predict whether a breast mass is 
+        This AI model analyzes 30 different cellular features to predict whether a breast mass is 
         benign (non-cancerous) or malignant (cancerous). Enter the cell nucleus measurements below.
     </div>
 """, unsafe_allow_html=True)
@@ -287,71 +266,51 @@ with tab1:
     input_data = []
     
     # Organize features into categories
-    mean_features = [f for f in feature_names if 'mean' in f.lower()]
-    se_features = [f for f in feature_names if 'error' in f.lower() or 'se' in f.lower()]
-    worst_features = [f for f in feature_names if 'worst' in f.lower()]
-    other_features = [f for f in feature_names if f not in mean_features + se_features + worst_features]
+    mean_features = [f for f in feature_names if 'mean' in f]
+    se_features = [f for f in feature_names if 'error' in f]
+    worst_features = [f for f in feature_names if 'worst' in f]
     
     col1, col2 = st.columns(2)
     
     with col1:
-        if mean_features:
-            st.markdown("### 📐 Mean Values")
-            for feature in mean_features:
-                value = st.number_input(
-                    feature.replace('_', ' ').title(),
-                    min_value=0.0,
-                    value=0.0,
-                    step=0.01,
-                    key=feature,
-                    help=f"Enter the {feature}"
-                )
-                input_data.append(value)
+        st.markdown("### 📐 Mean Values")
+        for feature in mean_features:
+            value = st.number_input(
+                feature.replace(' ', ' ').title(),
+                min_value=0.0,
+                value=0.0,
+                step=0.01,
+                key=feature,
+                help=f"Enter the mean {feature}"
+            )
+            input_data.append(value)
     
     with col2:
-        if se_features:
-            st.markdown("### 📊 Standard Error Values")
-            for feature in se_features:
-                value = st.number_input(
-                    feature.replace('_', ' ').title(),
-                    min_value=0.0,
-                    value=0.0,
-                    step=0.01,
-                    key=feature,
-                    help=f"Enter the {feature}"
-                )
-                input_data.append(value)
+        st.markdown("### 📊 Standard Error Values")
+        for feature in se_features:
+            value = st.number_input(
+                feature.replace(' ', ' ').title(),
+                min_value=0.0,
+                value=0.0,
+                step=0.01,
+                key=feature,
+                help=f"Enter the {feature}"
+            )
+            input_data.append(value)
     
-    if worst_features:
-        st.markdown("### 🔍 Worst Values")
-        worst_cols = st.columns(3)
-        for idx, feature in enumerate(worst_features):
-            with worst_cols[idx % 3]:
-                value = st.number_input(
-                    feature.replace('_', ' ').title(),
-                    min_value=0.0,
-                    value=0.0,
-                    step=0.01,
-                    key=feature,
-                    help=f"Enter the {feature}"
-                )
-                input_data.append(value)
-    
-    # Handle other features if any
-    if other_features:
-        st.markdown("### 📋 Additional Features")
-        other_cols = st.columns(3)
-        for idx, feature in enumerate(other_features):
-            with other_cols[idx % 3]:
-                value = st.number_input(
-                    feature.replace('_', ' ').title(),
-                    min_value=0.0,
-                    value=0.0,
-                    step=0.01,
-                    key=feature,
-                    help=f"Enter the {feature}"
-                )
-                input_data.append(value)
+    st.markdown("### 🔍 Worst Values")
+    worst_cols = st.columns(3)
+    for idx, feature in enumerate(worst_features):
+        with worst_cols[idx % 3]:
+            value = st.number_input(
+                feature.replace(' ', ' ').title(),
+                min_value=0.0,
+                value=0.0,
+                step=0.01,
+                key=feature,
+                help=f"Enter the {feature}"
+            )
+            input_data.append(value)
     
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -408,33 +367,36 @@ with tab1:
 
 with tab2:
     st.markdown("## 📖 Feature Guide")
-    st.markdown(f"""
-    This model analyzes **{len(feature_names)} features** from your dataset. 
-    The features are organized into categories for easier input.
+    st.markdown("""
+    This model analyzes **30 features** derived from cell nucleus characteristics. Here's what they mean:
     """)
     
-    if mean_features:
-        st.markdown("### Mean Features")
-        for feature in mean_features:
-            st.markdown(f"- **{feature}**")
-        st.markdown("---")
+    feature_info = {
+        "Mean Features": {
+            "radius": "Mean distance from center to perimeter points",
+            "texture": "Standard deviation of gray-scale values",
+            "perimeter": "Mean size of the core tumor",
+            "area": "Mean area of the tumor",
+            "smoothness": "Local variation in radius lengths",
+            "compactness": "Perimeter² / area - 1.0",
+            "concavity": "Severity of concave portions of the contour",
+            "concave points": "Number of concave portions of the contour",
+            "symmetry": "Symmetry of the cell",
+            "fractal dimension": "Coastline approximation - 1"
+        },
+        "Standard Error Features": {
+            "These features": "Represent the standard error of the mean measurements"
+        },
+        "Worst Features": {
+            "These features": "Represent the mean of the three largest values"
+        }
+    }
     
-    if se_features:
-        st.markdown("### Standard Error Features")
-        for feature in se_features:
-            st.markdown(f"- **{feature}**")
+    for category, features in feature_info.items():
+        st.markdown(f"### {category}")
+        for feature, description in features.items():
+            st.markdown(f"**{feature.title()}**: {description}")
         st.markdown("---")
-    
-    if worst_features:
-        st.markdown("### Worst Features")
-        for feature in worst_features:
-            st.markdown(f"- **{feature}**")
-        st.markdown("---")
-    
-    if other_features:
-        st.markdown("### Other Features")
-        for feature in other_features:
-            st.markdown(f"- **{feature}**")
 
 with tab3:
     st.markdown("## ℹ️ About This System")
@@ -446,14 +408,14 @@ with tab3:
         ### 🧠 Technology Stack
         - **Deep Learning**: TensorFlow & Keras
         - **Architecture**: 3-layer Neural Network
-        - **Training Data**: Custom Dataset (data.csv)
-        - **Features**: Cellular measurements
+        - **Training Data**: Wisconsin Breast Cancer Dataset
+        - **Features**: 30 cell nucleus measurements
         """)
         
         st.markdown(f"""
         ### 📊 Model Performance
         - **Accuracy**: {model_accuracy*100:.2f}%
-        - **Input Features**: {len(feature_names)}
+        - **Input Features**: 30
         - **Hidden Layer**: 20 neurons
         - **Activation**: ReLU + Sigmoid
         """)
@@ -461,15 +423,16 @@ with tab3:
     with col2:
         st.markdown("""
         ### 🎯 How It Works
-        1. **Input**: Enter cellular measurements
+        1. **Input**: Enter 30 cellular measurements
         2. **Standardization**: Data is normalized
         3. **Neural Network**: Processes through layers
         4. **Output**: Binary classification (Benign/Malignant)
         
         ### 🔬 Dataset Information
-        - **Source**: Custom CSV dataset
-        - **Features**: Computed from medical images
-        - **Classes**: Benign & Malignant
+        - **Source**: UCI Machine Learning Repository
+        - **Samples**: 569 cases
+        - **Classes**: Benign (357) & Malignant (212)
+        - **Features**: Computed from digitized images
         """)
     
     st.markdown("---")
